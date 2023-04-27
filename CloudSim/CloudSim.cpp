@@ -37,10 +37,13 @@ GLuint icoVAO, groundVAO, screenVAO;
 
 uniform matrixUBO, lightUBO, materialUBO, camUBO, cloudUBO;
 
+GLboolean keys[GLFW_KEY_LAST];
+
 vec4 lightPos = vec4(10.0f, 10.0f, 10.0f, 1.0f);
 vec3 lightAmb = vec3(1.0f, 1.0f, 1.0f), lightDif = vec3(1.0f, 1.0f, 1.0f), lightSpec = vec3(1.0f, 1.0f, 1.0f);
 vec3 isoColor = vec3(253/255.0f, 238/255.0f, 75/255.0f), specColor = vec3(.8f, .8f, .8f);
 vec3 groundColor = vec3(0/255.0f, 64/255.0f, 0/255.0f);
+vec4 skyColor = vec4(0/255.0f, 191/255.0f, 254/255.0f, 0.0f);
 
 int width = 1000, height = 1000;
 
@@ -52,7 +55,7 @@ vec3 cameraDir;
 float theta = glm::pi<float>()/4.0f, phi = glm::pi<float>()/1.5f;
 
 vec2 mousePos = vec2(-10000, -10000);
-bool shifting = false, pressLMB = false;
+bool pressLMB = false;
 
 void readShader(const char* fname, char *source)
 {
@@ -140,11 +143,17 @@ static void error_callback(int error, const char* description)
 
 static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
-    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
-        glfwSetWindowShouldClose(window, GLFW_TRUE);
+    if(key != GLFW_KEY_UNKNOWN)
+        keys[key] = ((action == GLFW_PRESS) || (action == GLFW_REPEAT));
 
-    if (key == GLFW_KEY_LEFT_SHIFT) {
-        shifting = ((action == GLFW_PRESS) || (action == GLFW_REPEAT));
+    if (action == GLFW_PRESS) {
+        switch (key) {
+            case GLFW_KEY_ESCAPE:
+                glfwSetWindowShouldClose(window, GLFW_TRUE);
+                break;
+            default:
+                break;
+        }
     }
 }
 
@@ -157,19 +166,9 @@ static void cursor_callback(GLFWwindow *window, double x, double y) {
         mousePos = vec2(x, y);
     }
 
-    if (shifting) {
-        if (pressLMB) {
-            if (x - mousePos.x > 0) {
-                cameraPos += .2f*cameraDir;
-            } else {
-                cameraPos -= .2f*cameraDir;
-            }
-        }
-    } else {
-        if (pressLMB) {
-            theta += (mousePos.x - x) * .005f;
-            phi += (y - mousePos.y) * .005f;
-        }
+    if (pressLMB) {
+        theta += (mousePos.x - x) * .005f;
+        phi += (y - mousePos.y) * .005f;
     }
 
     mousePos = vec2(x, y);
@@ -452,6 +451,22 @@ void setStaticUniforms() {
     glBufferData(GL_UNIFORM_BUFFER, cloudUBO.blockSize, cloudUBO.blockBuffer, GL_STATIC_DRAW);
 }
 
+void update() {
+    float moveSpeed = .15f;
+    if (keys[GLFW_KEY_W]) {
+        cameraPos += moveSpeed*(keys[GLFW_KEY_LEFT_SHIFT] + 1)*cameraDir;
+    }
+    if (keys[GLFW_KEY_A]) {
+        cameraPos -= moveSpeed*(keys[GLFW_KEY_LEFT_SHIFT] + 1)*glm::cross(cameraDir, vec3(0.0f, 1.0f, 0.0f));
+    }
+    if (keys[GLFW_KEY_S]) {
+        cameraPos -= moveSpeed*(keys[GLFW_KEY_LEFT_SHIFT] + 1)*cameraDir;
+    }
+    if (keys[GLFW_KEY_D]) {
+        cameraPos += moveSpeed*(keys[GLFW_KEY_LEFT_SHIFT] + 1)*glm::cross(cameraDir, vec3(0.0f, 1.0f, 0.0f));
+    }
+}
+
 void firstPass() {
     mat4 model = mat4(1.0f), icoModel = glm::translate(mat4(1.0f), vec3(lightPos)), view, projection, normal, icoNormal;
     glBindFramebuffer(GL_FRAMEBUFFER, FBOd);
@@ -584,12 +599,14 @@ int main(void) {
 
     setStaticUniforms();
 
-	glClearColor(0/255.0f, 191/255.0f, 254/255.0f, 0.0f);
+	glClearColor(skyColor.r, skyColor.g, skyColor.b, skyColor.a);
 	
     while (!glfwWindowShouldClose(window))
     {
         glViewport(0, 0, width, height);
-        
+
+        update();
+
         firstPass();
 
         secondPass();
