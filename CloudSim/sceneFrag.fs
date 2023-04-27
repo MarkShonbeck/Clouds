@@ -1,9 +1,10 @@
 #version 410 core
 
-layout(location=0) in vec3 Position;
-layout(location=1) in vec3 Normal;
+layout (location=0) in vec3 Position;
+layout (location=1) in vec3 Normal;
 
-layout(location=0) out vec4 FragColor;
+layout (location=0) out vec4 FragColor;
+layout (location=1) out vec4 DepthData;
 
 uniform matrixData {
     mat4 modelMat;
@@ -51,5 +52,8 @@ vec3 blinnPhong () {
 }
 
 void main() {
+    float Depth = -1.0*Position.z;
+    DepthData = vec4(vec3(1/Depth), 1.0);
+
     FragColor = vec4(blinnPhong(), 1.0);
 }

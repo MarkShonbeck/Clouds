@@ -31,7 +31,7 @@ struct uniform {
 
 GLuint phongProgram, cloudProgram;
 GLuint FBOd;
-GLuint renderTexd;
+GLuint renderTex, depthBuf, depthTex;
 
 GLuint icoVAO, groundVAO, screenVAO;
 
@@ -235,29 +235,43 @@ void initFBO() {
     glBindFramebuffer(GL_FRAMEBUFFER, FBOd);
 
     // Create the texture object
-    glGenTextures(1, &renderTexd);
-    glBindTexture(GL_TEXTURE_2D, renderTexd);
+    glGenTextures(1, &renderTex);
+    glBindTexture(GL_TEXTURE_2D, renderTex);
     glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, width, height);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
 
     // Bind the texture to the FBO
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderTexd, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderTex, 0);
 
     // Create the depth buffer
-    GLuint depthBuf;
     glGenRenderbuffers(1, &depthBuf);
     glBindRenderbuffer(GL_RENDERBUFFER, depthBuf);
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, width, height);
 
     // Bind the depth buffer to the FBO
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-    GL_RENDERBUFFER, depthBuf);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,GL_RENDERBUFFER, depthBuf);
+
+    // Create the depth texture object
+    glActiveTexture(GL_TEXTURE1);
+    glGenTextures(1, &depthTex);
+    glBindTexture(GL_TEXTURE_2D, depthTex);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA16, width, height);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+
+    // Bind depth texture to the FBO
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, depthTex, 0);
 
     // Set the targets for the fragment output variables
-    GLenum drawBuffers[] = {GL_COLOR_ATTACHMENT0};
-    glDrawBuffers(1, drawBuffers);
+    GLenum drawBuffers[] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
+    glDrawBuffers(2, drawBuffers);
+
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        printf("Error in frame buffer: %d\n", glCheckFramebufferStatus(GL_FRAMEBUFFER));
+    }
 
     // Unbind the framebuffer, and revert to default framebuffer
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -398,14 +412,14 @@ void initVAOs() {
     glBindVertexArray(0);
 }
 
-void setStaticUniforms() {
+void setUpUniforms() {
     int index = 0;
 
     GLchar* matrixComponents[4] = {"modelMat", "viewMat", "projectionMat", "normalMat"};
     GLchar* materialComponents[4] = {"reflectionAmbient", "reflectionDiffuse", "reflectionSpecular", "shine"};
     GLchar* lightComponents[4] = {"lightPosition", "ambient", "diffuse", "specular"};
     GLchar* camComponents[4] = {"camPosition", "camDirection"};
-    GLchar* cloudComponents[4] = {"coverage", "stepCount", "color", "boundingBox"};
+    GLchar* cloudComponents[4] = {"coverage", "stepCount", "cloudColor", "boundingBox"};
 
     matrixUBO = initUBO(index, 4, "matrixData", matrixComponents, phongProgram);
     lightUBO = initUBO(index, 4, "lightData", lightComponents, phongProgram);
@@ -431,9 +445,8 @@ void setStaticUniforms() {
     vec3 cloudColor = vec3(1.0f, 1.0f, 1.0f);
 
     // Set bounding box
-    static float box[8][3] = {
-            {5, 0, 5}, {-5, 0, 5}, {5, 0, -5}, {-5, 0, -5},
-            {5, 10, 5}, {-5, 10, 5}, {5, 10, -5}, {-5, 10, -5},
+    static float box[2][3] = {
+            {-5, 0, -5}, {5, 10, 5},
     };
 
     memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[0], &coverage, sizeof(float));
@@ -529,18 +542,27 @@ void secondPass() {
 
     // Activate texture of first pass
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, renderTexd);
+    glBindTexture(GL_TEXTURE_2D, renderTex);
+
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, depthTex);
 
     glDisable(GL_DEPTH_TEST);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    // Set Matrix Data
+    // Copy Matrix Data
     memcpy(matrixUBO.blockBuffer + matrixUBO.offsets[0], &identity, sizeof(mat4));
     memcpy(matrixUBO.blockBuffer + matrixUBO.offsets[1], &identity, sizeof(mat4));
     memcpy(matrixUBO.blockBuffer + matrixUBO.offsets[2], &identity, sizeof(mat4));
     memcpy(matrixUBO.blockBuffer + matrixUBO.offsets[3], &identity, sizeof(mat4));
     glBindBuffer(GL_UNIFORM_BUFFER, matrixUBO.ubod);
     glBufferData(GL_UNIFORM_BUFFER, matrixUBO.blockSize, matrixUBO.blockBuffer, GL_DYNAMIC_DRAW);
+
+    // Copy Camera Data
+    memcpy(camUBO.blockBuffer + camUBO.offsets[0], &cameraPos, sizeof(vec3));
+    memcpy(camUBO.blockBuffer + camUBO.offsets[1], &cameraDir, sizeof(vec3));
+    glBindBuffer(GL_UNIFORM_BUFFER, camUBO.ubod);
+    glBufferData(GL_UNIFORM_BUFFER, camUBO.blockSize, camUBO.blockBuffer, GL_DYNAMIC_DRAW);
 
     // Render the full-screen quad
     glBindVertexArray(screenVAO);
@@ -597,7 +619,7 @@ int main(void) {
 
     initShaders();
 
-    setStaticUniforms();
+    setUpUniforms();
 
 	glClearColor(skyColor.r, skyColor.g, skyColor.b, skyColor.a);
 	
