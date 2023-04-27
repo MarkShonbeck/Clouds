@@ -29,7 +29,11 @@ struct uniform {
     GLuint ubod;
 };
 
-GLuint phongProgram;
+GLuint phongProgram, cloudProgram;
+GLuint FBOd;
+GLuint renderTexd;
+
+int width = 1000, height = 1000;
 
 int lastTime;
 int nFrames;
@@ -76,7 +80,7 @@ unsigned int loadShader(const char *source, unsigned int mode)
 	return id;
 }
 
-void initShader()
+void initShaders()
 {
 	char *vsSource, *fsSource;
 	GLuint vs,fs;
@@ -89,8 +93,8 @@ void initShader()
 
     phongProgram = glCreateProgram();
 
-    readShader("phongVertex.vs",vsSource);
-    readShader("phongFragment.fs",fsSource);
+    readShader("sceneVert.vs",vsSource);
+    readShader("sceneFrag.fs",fsSource);
 
     vs = loadShader(vsSource,GL_VERTEX_SHADER);
     fs = loadShader(fsSource,GL_FRAGMENT_SHADER);
@@ -99,13 +103,31 @@ void initShader()
     glAttachShader(phongProgram, fs);
 
     glLinkProgram(phongProgram);
+
+    vsSource = (char *)malloc(sizeof(char)*20000);
+    fsSource = (char *)malloc(sizeof(char)*20000);
+
+    vsSource[0]='\0';
+    fsSource[0]='\0';
+
+    cloudProgram = glCreateProgram();
+
+    readShader("cloudVert.vs",vsSource);
+    readShader("cloudFrag.fs",fsSource);
+
+    vs = loadShader(vsSource,GL_VERTEX_SHADER);
+    fs = loadShader(fsSource,GL_FRAGMENT_SHADER);
+
+    glAttachShader(cloudProgram, vs);
+    glAttachShader(cloudProgram, fs);
+
+    glLinkProgram(cloudProgram);
 }
 
 static void error_callback(int error, const char* description)
 {
     fprintf(stderr, "Error: %s\n", description);
 }
-
 
 static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
@@ -164,15 +186,15 @@ void showFPS(GLFWwindow* window) {
         }
 }
 
-uniform initUBO(int &index, int size, std::string name, GLchar** blockComponents) {
+uniform initUBO(int &index, int size, std::string name, GLchar** blockComponents, GLuint program) {
     uniform current;
 
     // Get uniform location
-    GLint phongBlockIndex = glGetUniformBlockIndex(phongProgram, name.c_str());
+    GLint blockIndex = glGetUniformBlockIndex(program, name.c_str());
 
     // Query the size of the buffer
     GLint blockSize;
-    glGetActiveUniformBlockiv(phongProgram, phongBlockIndex, GL_UNIFORM_BLOCK_DATA_SIZE, &blockSize);
+    glGetActiveUniformBlockiv(program, blockIndex, GL_UNIFORM_BLOCK_DATA_SIZE, &blockSize);
     current.blockSize = blockSize;
 
     // Create the buffer
@@ -180,23 +202,57 @@ uniform initUBO(int &index, int size, std::string name, GLchar** blockComponents
 
     // Query the indices of the block components
     GLuint indices[size];
-    glGetUniformIndices(phongProgram, size, blockComponents, indices);
+    glGetUniformIndices(program, size, blockComponents, indices);
 
     // Get the offsets for each index
     GLint offsets[size];
-    glGetActiveUniformsiv(phongProgram, size, indices, GL_UNIFORM_OFFSET, offsets);
+    glGetActiveUniformsiv(program, size, indices, GL_UNIFORM_OFFSET, offsets);
     current.offsets.assign(offsets, offsets + size);
 
     // Generate descriptor
     glGenBuffers(1, &current.ubod);
 
     // Connect buffer to block
-    glUniformBlockBinding(phongProgram, phongBlockIndex, index);
+    glUniformBlockBinding(program, blockIndex, index);
     glBindBufferBase(GL_UNIFORM_BUFFER, index, current.ubod);
 
     index++;
 
     return current;
+}
+
+void initFBO() {
+    // Generate and bind the framebuffer
+    glGenFramebuffers(1, &FBOd);
+    glBindFramebuffer(GL_FRAMEBUFFER, FBOd);
+
+    // Create the texture object
+    glGenTextures(1, &renderTexd);
+    glBindTexture(GL_TEXTURE_2D, renderTexd);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, width, height);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+
+    // Bind the texture to the FBO
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderTexd, 0);
+
+    // Create the depth buffer
+    GLuint depthBuf;
+    glGenRenderbuffers(1, &depthBuf);
+    glBindRenderbuffer(GL_RENDERBUFFER, depthBuf);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, width, height);
+
+    // Bind the depth buffer to the FBO
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+    GL_RENDERBUFFER, depthBuf);
+
+    // Set the targets for the fragment output variables
+    GLenum drawBuffers[] = {GL_COLOR_ATTACHMENT0};
+    glDrawBuffers(1, drawBuffers);
+
+    // Unbind the framebuffer, and revert to default framebuffer
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
     
 int main(void) {
@@ -212,6 +268,10 @@ int main(void) {
     GLuint groundIndexBuf;
     GLuint groundVAO;
 
+    GLuint screenPosBuf;
+    GLuint screenTexBuf;
+    GLuint screenVAO;
+
 	lastTime = 0;
 	nFrames = 0;
 
@@ -222,7 +282,7 @@ int main(void) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
 
-    window = glfwCreateWindow(1200, 600, "Icosahedron", NULL, NULL);
+    window = glfwCreateWindow(width, height, "Icosahedron", NULL, NULL);
     if (!window)
     {
         glfwTerminate();
@@ -251,7 +311,12 @@ int main(void) {
 	printf("GL Version (string)  : %s\n", version);
 	printf("GL Version (integer) : %d.%d\n", major, minor);
 	printf("GLSL Version         : %s\n", glslVersion);
-	
+
+    // Set bounding box
+    static float box[8][3] = {
+            {5, 0, 5}, {-5, 0, 5}, {5, 0, -5}, {-5, 0, -5},
+            {5, 10, 5}, {-5, 10, 5}, {5, 10, -5}, {-5, 10, -5},
+    };
 
 	// These are the 12 vertices for the icosahedron
 	static GLfloat vpos[12][3] = {
@@ -345,19 +410,57 @@ int main(void) {
 
     glBindVertexArray(0);
 
-    initShader();
+    // Quad for multipass rendering
+    GLfloat screenVert[] = {
+            -1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 0.0f, 1.0f, 1.0f, 0.0f,
+            -1.0f, -1.0f, 0.0f, 1.0f, 1.0f, 0.0f, -1.0f, 1.0f, 0.0f
+    };
+    GLfloat screenTexCoords[] = {
+            0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 1.0f,
+            0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f
+    };
+
+    glGenBuffers(1, &screenPosBuf);
+    glGenBuffers(1, &screenTexBuf);
+
+    glGenVertexArrays(1, &screenVAO);
+    glBindVertexArray(screenVAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, screenPosBuf);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(screenVert), screenVert, GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ARRAY_BUFFER, screenTexBuf);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(screenTexCoords), screenTexCoords, GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ARRAY_BUFFER, screenPosBuf);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, screenTexBuf);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, (void*)0);
+
+    glBindVertexArray(0);
+
+    initFBO();
+
+    initShaders();
 
     // Initialize UBOs
-    uniform matrixUBO, lightUBO, materialUBO;
+    uniform matrixUBO, lightUBO, materialUBO, camUBO, cloudUBO;
     int index = 0;
 
     GLchar* matrixComponents[4] = {"modelMat", "viewMat", "projectionMat", "normalMat"};
     GLchar* materialComponents[4] = {"reflectionAmbient", "reflectionDiffuse", "reflectionSpecular", "shine"};
     GLchar* lightComponents[4] = {"lightPosition", "ambient", "diffuse", "specular"};
+    GLchar* camComponents[4] = {"camPosition", "camDirection"};
+    GLchar* cloudComponents[4] = {"coverage", "stepCount", "color", "boundingBox"};
 
-    matrixUBO = initUBO(index, 4, "matrixData", matrixComponents);
-    lightUBO = initUBO(index, 4, "lightData", lightComponents);
-    materialUBO = initUBO(index, 4, "materialData", materialComponents);
+    matrixUBO = initUBO(index, 4, "matrixData", matrixComponents, phongProgram);
+    lightUBO = initUBO(index, 4, "lightData", lightComponents, phongProgram);
+    materialUBO = initUBO(index, 4, "materialData", materialComponents, phongProgram);
+    camUBO = initUBO(index, 2, "camData", camComponents, cloudProgram);
+    cloudUBO = initUBO(index, 4, "cloudData", cloudComponents, cloudProgram);
 
     // Copy static data into GPU
     vec4 lightPos = vec4(10.0f, 10.0f, 10.0f, 1.0f);
@@ -376,24 +479,35 @@ int main(void) {
     memcpy(materialUBO.blockBuffer + materialUBO.offsets[2], &specColor, sizeof(vec3));
     memcpy(materialUBO.blockBuffer + materialUBO.offsets[3], &shine, sizeof(float));
 
+    float coverage = .5f;
+    int stepCount = 5;
+    vec3 cloudColor = vec3(1.0f, 1.0f, 1.0f);
+
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[0], &coverage, sizeof(float));
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[1], &stepCount, sizeof(int));
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[2], &cloudColor, sizeof(vec3));
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[3], &box, sizeof(box));
+
     glBindBuffer(GL_UNIFORM_BUFFER, lightUBO.ubod);
     glBufferData(GL_UNIFORM_BUFFER, lightUBO.blockSize, lightUBO.blockBuffer, GL_STATIC_DRAW);
 
     glBindBuffer(GL_UNIFORM_BUFFER, materialUBO.ubod);
     glBufferData(GL_UNIFORM_BUFFER, materialUBO.blockSize, materialUBO.blockBuffer, GL_STATIC_DRAW);
 
-    glEnable(GL_DEPTH_TEST);
+    glBindBuffer(GL_UNIFORM_BUFFER, cloudUBO.ubod);
+    glBufferData(GL_UNIFORM_BUFFER, cloudUBO.blockSize, cloudUBO.blockBuffer, GL_STATIC_DRAW);
 
     mat4 model = mat4(1.0f), icoModel = glm::translate(mat4(1.0f), vec3(lightPos)), view, projection, normal, icoNormal;
+    mat4 identity = mat4(1.0f);
 
 	glClearColor(0/255.0f, 191/255.0f, 254/255.0f, 0.0f);
 	
     while (!glfwWindowShouldClose(window))
     {
-        int width, height;
-        glfwGetFramebufferSize(window, &width, &height);
         glViewport(0, 0, width, height);
-        glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+        glBindFramebuffer(GL_FRAMEBUFFER, FBOd);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glEnable(GL_DEPTH_TEST);
 
         glUseProgram(phongProgram);
 
@@ -442,6 +556,27 @@ int main(void) {
         glBindVertexArray(groundVAO);
         glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_INT, 0);
         glBindVertexArray(0);
+
+        glUseProgram(cloudProgram);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, renderTexd);
+
+        glDisable(GL_DEPTH_TEST);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        // Set Matrix Data
+        memcpy(matrixUBO.blockBuffer + matrixUBO.offsets[0], &identity, sizeof(mat4));
+        memcpy(matrixUBO.blockBuffer + matrixUBO.offsets[1], &identity, sizeof(mat4));
+        memcpy(matrixUBO.blockBuffer + matrixUBO.offsets[2], &identity, sizeof(mat4));
+        memcpy(matrixUBO.blockBuffer + matrixUBO.offsets[3], &identity, sizeof(mat4));
+        glBindBuffer(GL_UNIFORM_BUFFER, matrixUBO.ubod);
+        glBufferData(GL_UNIFORM_BUFFER, matrixUBO.blockSize, matrixUBO.blockBuffer, GL_DYNAMIC_DRAW);
+
+        // Render the full-screen quad
+        glBindVertexArray(screenVAO);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
 
 		showFPS(window);
 
