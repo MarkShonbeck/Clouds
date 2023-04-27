@@ -37,6 +37,8 @@ GLuint icoVAO, groundVAO, screenVAO;
 
 uniform matrixUBO, lightUBO, materialUBO, camUBO, cloudUBO;
 
+GLuint subIndex[2], sub = 0;
+
 GLboolean keys[GLFW_KEY_LAST];
 
 vec4 lightPos = vec4(10.0f, 10.0f, 10.0f, 1.0f);
@@ -150,6 +152,12 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
         switch (key) {
             case GLFW_KEY_ESCAPE:
                 glfwSetWindowShouldClose(window, GLFW_TRUE);
+                break;
+            case GLFW_KEY_1:
+                sub = 0;
+                break;
+            case GLFW_KEY_2:
+                sub = 1;
                 break;
             default:
                 break;
@@ -462,6 +470,9 @@ void setUpUniforms() {
 
     glBindBuffer(GL_UNIFORM_BUFFER, cloudUBO.ubod);
     glBufferData(GL_UNIFORM_BUFFER, cloudUBO.blockSize, cloudUBO.blockBuffer, GL_STATIC_DRAW);
+
+    subIndex[0] = glGetSubroutineIndex(cloudProgram, GL_FRAGMENT_SHADER, "simpleScene");
+    subIndex[1] = glGetSubroutineIndex(cloudProgram, GL_FRAGMENT_SHADER, "showBoundingBox");
 }
 
 void update() {
@@ -540,7 +551,7 @@ void secondPass() {
     glUseProgram(cloudProgram);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    // Activate texture of first pass
+    // Activate textures of first pass
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, renderTex);
 
@@ -563,6 +574,9 @@ void secondPass() {
     memcpy(camUBO.blockBuffer + camUBO.offsets[1], &cameraDir, sizeof(vec3));
     glBindBuffer(GL_UNIFORM_BUFFER, camUBO.ubod);
     glBufferData(GL_UNIFORM_BUFFER, camUBO.blockSize, camUBO.blockBuffer, GL_DYNAMIC_DRAW);
+
+    // Set subroutine
+    glUniformSubroutinesuiv(GL_FRAGMENT_SHADER, 1, &subIndex[sub]);
 
     // Render the full-screen quad
     glBindVertexArray(screenVAO);

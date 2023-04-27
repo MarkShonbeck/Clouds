@@ -32,6 +32,9 @@ uniform cloudData {
     float boundingBox[6];
 };
 
+subroutine void RenderLevelType();
+subroutine uniform RenderLevelType RenderLevel;
+
 vec3 rayo, rayd;
 
 void generateRay() {
@@ -85,7 +88,16 @@ float intersectBox(vec3 rayo, vec3 rayd) {
     return min;
 }
 
-void main() {
+subroutine (RenderLevelType)
+void simpleScene() {
+    ivec2 pixel = ivec2(gl_FragCoord.xy);
+    vec4 color = texelFetch(ColorData, pixel, 0);
+
+    FragColor = color;
+}
+
+subroutine (RenderLevelType)
+void showBoundingBox() {
     ivec2 pixel = ivec2(gl_FragCoord.xy);
     vec4 color = texelFetch(ColorData, pixel, 0);
     vec4 depthVec = texelFetch(DepthData, pixel, 0);
@@ -101,4 +113,8 @@ void main() {
     if (t > -.00001 && t < 10000 && (depthVec.a < .00001 || t < depth)) {
         FragColor = vec4(cloudColor, 1.0);
     }
+}
+
+void main() {
+    RenderLevel();
 }
