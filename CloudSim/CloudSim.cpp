@@ -58,7 +58,7 @@ float theta = glm::pi<float>()/4.0f, phi = glm::pi<float>()/1.5f;
 
 vec3 cloudOffset, cloudSpeed = vec3(0.0f);
 float coverage = .5f, cloudScale = 5;
-int stepCount = 5;
+int stepCount = 10;
 
 vec2 mousePos = vec2(-10000, -10000);
 bool pressLMB = false;
@@ -501,18 +501,24 @@ void setUpUniforms() {
 }
 
 void update() {
-    float moveSpeed = .15f;
+    float moveSpeed = .15f*(keys[GLFW_KEY_LEFT_SHIFT] + 1);
     if (keys[GLFW_KEY_W]) {
-        cameraPos += moveSpeed*(keys[GLFW_KEY_LEFT_SHIFT] + 1)*cameraDir;
+        cameraPos += moveSpeed*cameraDir;
     }
     if (keys[GLFW_KEY_A]) {
-        cameraPos -= moveSpeed*(keys[GLFW_KEY_LEFT_SHIFT] + 1)*glm::cross(cameraDir, vec3(0.0f, 1.0f, 0.0f));
+        cameraPos -= moveSpeed*glm::cross(cameraDir, vec3(0.0f, 1.0f, 0.0f));
     }
     if (keys[GLFW_KEY_S]) {
-        cameraPos -= moveSpeed*(keys[GLFW_KEY_LEFT_SHIFT] + 1)*cameraDir;
+        cameraPos -= moveSpeed*cameraDir;
     }
     if (keys[GLFW_KEY_D]) {
-        cameraPos += moveSpeed*(keys[GLFW_KEY_LEFT_SHIFT] + 1)*glm::cross(cameraDir, vec3(0.0f, 1.0f, 0.0f));
+        cameraPos += moveSpeed*glm::cross(cameraDir, vec3(0.0f, 1.0f, 0.0f));
+    }
+    if (keys[GLFW_KEY_SPACE]) {
+        cameraPos += moveSpeed*vec3(0.0f, 1.0f, 0.0f);
+    }
+    if (keys[GLFW_KEY_LEFT_CONTROL]) {
+        cameraPos -= moveSpeed*vec3(0.0f, 1.0f, 0.0f);
     }
 
     cloudOffset += cloudSpeed;
