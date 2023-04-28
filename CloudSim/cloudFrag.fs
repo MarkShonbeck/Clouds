@@ -54,7 +54,7 @@ void generateRay() {
     rayd = normalize(pixelCenter-camPosition); // ray direction
 }
 
-float intersectBox(vec3 rayo, vec3 rayd) {
+vec2 intersectBox(vec3 rayo, vec3 rayd) {
     float t[6] = {10001, 10001, 10001, 10001, 10001, 10001};
 
     if (rayd.x != 0) {
@@ -71,21 +71,85 @@ float intersectBox(vec3 rayo, vec3 rayd) {
     }
 
     float min = 10001;
+    float max = 0;
     for (int i = 0; i < 6; i++) {
         if (t[i] < 0) {
             t[i] = 0;
         }
-        if (t[i] < min) {
-            vec3 point = rayo + t[i]*rayd;
-            if (point.x >= boundingBox[0] - .00001 && point.x <= boundingBox[3] + .00001 &&
-                point.y >= boundingBox[1] - .00001 && point.y <= boundingBox[4] + .00001 &&
-                point.z >= boundingBox[2] - .00001 && point.z <= boundingBox[5] + .00001) {
+        vec3 point = rayo + t[i]*rayd;
+        if (point.x >= boundingBox[0] - .00001 && point.x <= boundingBox[3] + .00001 &&
+            point.y >= boundingBox[1] - .00001 && point.y <= boundingBox[4] + .00001 &&
+            point.z >= boundingBox[2] - .00001 && point.z <= boundingBox[5] + .00001) {
+            if (t[i] < min) {
                 min = t[i];
+            }
+            if (t[i] > max) {
+                max = t[i];
             }
         }
     }
 
-    return min;
+    return vec2(min, max);
+}
+
+vec3 hash33(vec3 p3) {
+	p3 = fract(p3 * vec3(0.1031, 0.11369, 0.13787));
+    p3 += dot(p3, p3.yxz+19.19);
+    return -1.0 + 2.0 * fract(vec3((p3.x + p3.y)*p3.z, (p3.x+p3.z)*p3.y, (p3.y+p3.z)*p3.x));
+}
+
+float perlin_noise(vec3 p, float scale) {
+    p *= scale;
+
+    vec3 pi = floor(p);
+    vec3 pf = p - pi;
+
+    vec3 w = pf * pf * (3.0 - 2.0 * pf);
+
+    return 	mix(
+        		mix(
+                	mix(dot(pf - vec3(0, 0, 0), hash33(pi + vec3(0, 0, 0))),
+                        dot(pf - vec3(1, 0, 0), hash33(pi + vec3(1, 0, 0))),
+                       	w.x),
+                	mix(dot(pf - vec3(0, 0, 1), hash33(pi + vec3(0, 0, 1))),
+                        dot(pf - vec3(1, 0, 1), hash33(pi + vec3(1, 0, 1))),
+                       	w.x),
+                	w.z),
+        		mix(
+                    mix(dot(pf - vec3(0, 1, 0), hash33(pi + vec3(0, 1, 0))),
+                        dot(pf - vec3(1, 1, 0), hash33(pi + vec3(1, 1, 0))),
+                       	w.x),
+                   	mix(dot(pf - vec3(0, 1, 1), hash33(pi + vec3(0, 1, 1))),
+                        dot(pf - vec3(1, 1, 1), hash33(pi + vec3(1, 1, 1))),
+                       	w.x),
+                	w.z),
+    			w.y);
+}
+
+float sampleDensity (vec3 position) {
+    float density = 0;
+
+    for (int i = 0; i < 5; i++) {
+            density += perlin_noise(position, pow(2, i)) * pow(2, -i);
+    }
+
+    density = (density+.5) - coverage;
+
+    return max(density, 0);
+}
+
+float rayMarch (vec3 startPoint, vec3 endPoint) {
+    float stepDistance = (length(endPoint - startPoint))/(stepCount-1);
+    vec3 stepDirection = normalize(endPoint - startPoint);
+    float totalDensity = 0;
+
+    for (int i = 0; i < stepCount; i++) {
+        vec3 point = startPoint + i*stepDistance*stepDirection;
+
+        totalDensity += sampleDensity(point) * stepDistance;
+    }
+
+    return exp(-totalDensity);
 }
 
 subroutine (RenderLevelType)
@@ -106,12 +170,39 @@ void showBoundingBox() {
 
     generateRay();
 
-    float t = intersectBox(rayo, rayd);
+    float t = intersectBox(rayo, rayd).x;
 
     FragColor = color;
 
     if (t > -.00001 && t < 10000 && (depthVec.a < .00001 || t < depth)) {
         FragColor = vec4(cloudColor, 1.0);
+    }
+}
+
+subroutine (RenderLevelType)
+void simpleRayMarchNoise() {
+    ivec2 pixel = ivec2(gl_FragCoord.xy);
+    vec4 color = texelFetch(ColorData, pixel, 0);
+    vec4 depthVec = texelFetch(DepthData, pixel, 0);
+
+    float depth = 1/depthVec.x;
+
+    generateRay();
+
+    vec2 t = intersectBox(rayo, rayd);
+
+    FragColor = color;
+
+    if (depthVec.a < .00001 || t.x < depth) {
+        if (t.x > -.00001 && t.x < 10000) {
+            t.y = min(t.y, depth);
+
+            vec3 startPoint = rayo + t.x*rayd;
+            vec3 endPoint = rayo + t.y*rayd;
+
+            float light = rayMarch (startPoint, endPoint);
+            FragColor = mix(vec4(cloudColor, 1.0), color, light);
+        }
     }
 }
 

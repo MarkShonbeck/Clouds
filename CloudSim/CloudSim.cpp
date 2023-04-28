@@ -37,7 +37,7 @@ GLuint icoVAO, groundVAO, screenVAO;
 
 uniform matrixUBO, lightUBO, materialUBO, camUBO, cloudUBO;
 
-GLuint subIndex[2], sub = 0;
+GLuint subIndex[3], sub = 0;
 
 GLboolean keys[GLFW_KEY_LAST];
 
@@ -158,6 +158,9 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
                 break;
             case GLFW_KEY_2:
                 sub = 1;
+                break;
+            case GLFW_KEY_3:
+                sub = 2;
                 break;
             default:
                 break;
@@ -473,6 +476,7 @@ void setUpUniforms() {
 
     subIndex[0] = glGetSubroutineIndex(cloudProgram, GL_FRAGMENT_SHADER, "simpleScene");
     subIndex[1] = glGetSubroutineIndex(cloudProgram, GL_FRAGMENT_SHADER, "showBoundingBox");
+    subIndex[2] = glGetSubroutineIndex(cloudProgram, GL_FRAGMENT_SHADER, "simpleRayMarchNoise");
 }
 
 void update() {
