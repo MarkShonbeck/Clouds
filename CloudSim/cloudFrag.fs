@@ -56,6 +56,15 @@ void generateRay() {
     rayd = normalize(pixelCenter-camPosition); // ray direction
 }
 
+float getDepth()  {
+    float near = .3, far = 100;
+    ivec2 pixel = ivec2(gl_FragCoord.xy);
+    float depth = texelFetch(DepthData, pixel, 0).x;
+    float ndc = depth * 2.0 - 1.0;
+    float linearDepth = (2.0 * near * far) / (far + near - ndc * (far - near));
+    return linearDepth;
+}
+
 vec2 intersectBox(vec3 rayo, vec3 rayd) {
     float t[6] = {10001, 10001, 10001, 10001, 10001, 10001};
 
@@ -167,9 +176,7 @@ subroutine (RenderLevelType)
 void showBoundingBox() {
     ivec2 pixel = ivec2(gl_FragCoord.xy);
     vec4 color = texelFetch(ColorData, pixel, 0);
-    vec4 depthVec = texelFetch(DepthData, pixel, 0);
-
-    float depth = 1/depthVec.x;
+    float depth = getDepth();
 
     generateRay();
 
@@ -177,7 +184,7 @@ void showBoundingBox() {
 
     FragColor = color;
 
-    if (t > -.00001 && t < 10000 && (depthVec.a < .00001 || t < depth)) {
+    if (t > -.00001 && t < 10000 && t < depth) {
         FragColor = vec4(cloudColor, 1.0);
     }
 }
@@ -186,9 +193,7 @@ subroutine (RenderLevelType)
 void simpleRayMarchNoise() {
     ivec2 pixel = ivec2(gl_FragCoord.xy);
     vec4 color = texelFetch(ColorData, pixel, 0);
-    vec4 depthVec = texelFetch(DepthData, pixel, 0);
-
-    float depth = 1/depthVec.x;
+    float depth = getDepth();
 
     generateRay();
 
@@ -196,7 +201,7 @@ void simpleRayMarchNoise() {
 
     FragColor = color;
 
-    if (depthVec.a < .00001 || t.x < depth) {
+    if (t.x < depth) {
         if (t.x > -.00001 && t.x < 10000) {
             t.y = min(t.y, depth);
 
