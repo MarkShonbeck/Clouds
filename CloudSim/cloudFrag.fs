@@ -30,6 +30,8 @@ uniform cloudData {
     int stepCount;
     vec3 cloudColor;
     float boundingBox[6];
+    float cloudScale;
+    vec3 cloudOffset;
 };
 
 subroutine void RenderLevelType();
@@ -127,6 +129,7 @@ float perlin_noise(vec3 p, float scale) {
 }
 
 float sampleDensity (vec3 position) {
+    position = position/cloudScale + cloudOffset;
     float density = 0;
 
     for (int i = 0; i < 5; i++) {

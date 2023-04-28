@@ -56,6 +56,8 @@ vec3 cameraPos = vec3(-10.0f, 10.0f, -10.0f);
 vec3 cameraDir;
 float theta = glm::pi<float>()/4.0f, phi = glm::pi<float>()/1.5f;
 
+vec3 cloudOffset, cloudSpeed = vec3(0.0f);
+
 vec2 mousePos = vec2(-10000, -10000);
 bool pressLMB = false;
 
@@ -161,6 +163,9 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
                 break;
             case GLFW_KEY_3:
                 sub = 2;
+                break;
+            case GLFW_KEY_4:
+                cloudSpeed = vec3(.01f, 0.0f, 0.0f);
                 break;
             default:
                 break;
@@ -430,13 +435,13 @@ void setUpUniforms() {
     GLchar* materialComponents[4] = {"reflectionAmbient", "reflectionDiffuse", "reflectionSpecular", "shine"};
     GLchar* lightComponents[4] = {"lightPosition", "ambient", "diffuse", "specular"};
     GLchar* camComponents[4] = {"camPosition", "camDirection"};
-    GLchar* cloudComponents[4] = {"coverage", "stepCount", "cloudColor", "boundingBox"};
+    GLchar* cloudComponents[6] = {"coverage", "stepCount", "cloudColor", "boundingBox", "cloudScale", "cloudOffset"};
 
     matrixUBO = initUBO(index, 4, "matrixData", matrixComponents, phongProgram);
     lightUBO = initUBO(index, 4, "lightData", lightComponents, phongProgram);
     materialUBO = initUBO(index, 4, "materialData", materialComponents, phongProgram);
     camUBO = initUBO(index, 2, "camData", camComponents, cloudProgram);
-    cloudUBO = initUBO(index, 4, "cloudData", cloudComponents, cloudProgram);
+    cloudUBO = initUBO(index, 6, "cloudData", cloudComponents, cloudProgram);
 
     // Copy static data into GPU
     memcpy(lightUBO.blockBuffer + lightUBO.offsets[0], &lightPos, sizeof(vec4));
@@ -451,9 +456,10 @@ void setUpUniforms() {
     memcpy(materialUBO.blockBuffer + materialUBO.offsets[2], &specColor, sizeof(vec3));
     memcpy(materialUBO.blockBuffer + materialUBO.offsets[3], &shine, sizeof(float));
 
-    float coverage = .5f;
+    float coverage = .5f, cloudScale = 2;
     int stepCount = 5;
     vec3 cloudColor = vec3(1.0f, 1.0f, 1.0f);
+    cloudOffset = vec3(0.0f, 0.0f, 0.0f);
 
     // Set bounding box
     static float box[2][3] = {
@@ -463,7 +469,9 @@ void setUpUniforms() {
     memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[0], &coverage, sizeof(float));
     memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[1], &stepCount, sizeof(int));
     memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[2], &cloudColor, sizeof(vec3));
-    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[3], &box, sizeof(box));
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[3], box, sizeof(box));
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[4], &cloudScale, sizeof(float));
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[5], &cloudOffset, sizeof(vec3));
 
     glBindBuffer(GL_UNIFORM_BUFFER, lightUBO.ubod);
     glBufferData(GL_UNIFORM_BUFFER, lightUBO.blockSize, lightUBO.blockBuffer, GL_STATIC_DRAW);
@@ -493,6 +501,8 @@ void update() {
     if (keys[GLFW_KEY_D]) {
         cameraPos += moveSpeed*(keys[GLFW_KEY_LEFT_SHIFT] + 1)*glm::cross(cameraDir, vec3(0.0f, 1.0f, 0.0f));
     }
+
+    cloudOffset += cloudSpeed;
 }
 
 void firstPass() {
@@ -578,6 +588,11 @@ void secondPass() {
     memcpy(camUBO.blockBuffer + camUBO.offsets[1], &cameraDir, sizeof(vec3));
     glBindBuffer(GL_UNIFORM_BUFFER, camUBO.ubod);
     glBufferData(GL_UNIFORM_BUFFER, camUBO.blockSize, camUBO.blockBuffer, GL_DYNAMIC_DRAW);
+
+    // Copy Cloud Data
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[5], &cloudOffset, sizeof(vec3));
+    glBindBuffer(GL_UNIFORM_BUFFER, cloudUBO.ubod);
+    glBufferData(GL_UNIFORM_BUFFER, cloudUBO.blockSize, cloudUBO.blockBuffer, GL_STATIC_DRAW);
 
     // Set subroutine
     glUniformSubroutinesuiv(GL_FRAGMENT_SHADER, 1, &subIndex[sub]);
