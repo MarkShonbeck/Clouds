@@ -220,6 +220,35 @@ void showBoundingBox() {
 }
 
 subroutine (RenderLevelType)
+void showNoise() {
+    ivec2 pixel = ivec2(gl_FragCoord.xy);
+    vec4 color = texelFetch(ColorData, pixel, 0);
+    float depth = getDepth();
+
+    generateRay();
+
+    vec2 t = intersectBox(rayo, rayd);
+
+    FragColor = color;
+
+    if (t.x < depth) {
+        if (t.x > -.00001 && t.x < 10000) {
+            t.y = min(t.y, depth);
+
+            vec3 startPoint = rayo + t.x*rayd;
+            vec3 endPoint = rayo + t.y*rayd;
+
+            float light = simpleRayMarch(startPoint, endPoint);
+            if (light < coverage) {
+                FragColor = vec4(cloudColor, 1.0);
+            } else {
+                FragColor = color;
+            }
+        }
+    }
+}
+
+subroutine (RenderLevelType)
 void simpleRayMarchNoise() {
     ivec2 pixel = ivec2(gl_FragCoord.xy);
     vec4 color = texelFetch(ColorData, pixel, 0);

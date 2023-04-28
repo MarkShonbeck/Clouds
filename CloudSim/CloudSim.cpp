@@ -37,7 +37,7 @@ GLuint icoVAO, groundVAO, screenVAO;
 
 uniform matrixUBO, lightUBO, materialUBO, camUBO, cloudUBO;
 
-GLuint subIndex[3], sub = 0;
+GLuint subIndex[4], sub = 0;
 
 GLboolean keys[GLFW_KEY_LAST];
 
@@ -57,6 +57,8 @@ vec3 cameraDir;
 float theta = glm::pi<float>()/4.0f, phi = glm::pi<float>()/1.5f;
 
 vec3 cloudOffset, cloudSpeed = vec3(0.0f);
+float coverage = .5f, cloudScale = 5;
+int stepCount = 5;
 
 vec2 mousePos = vec2(-10000, -10000);
 bool pressLMB = false;
@@ -155,6 +157,24 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
             case GLFW_KEY_ESCAPE:
                 glfwSetWindowShouldClose(window, GLFW_TRUE);
                 break;
+            case GLFW_KEY_I:
+                coverage += .1f;
+                break;
+            case GLFW_KEY_K:
+                coverage -= .1f;
+                break;
+            case GLFW_KEY_O:
+                cloudScale += 1;
+                break;
+            case GLFW_KEY_L:
+                cloudScale -= 1;
+                break;
+            case GLFW_KEY_P:
+                stepCount += 1;
+                break;
+            case GLFW_KEY_SEMICOLON:
+                stepCount -= 1;
+                break;
             case GLFW_KEY_1:
                 sub = 0;
                 break;
@@ -165,6 +185,9 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
                 sub = 2;
                 break;
             case GLFW_KEY_4:
+                sub = 3;
+                break;
+            case GLFW_KEY_5:
                 cloudSpeed = vec3(.01f, 0.0f, 0.0f);
                 break;
             default:
@@ -447,8 +470,6 @@ void setUpUniforms() {
     memcpy(materialUBO.blockBuffer + materialUBO.offsets[2], &specColor, sizeof(vec3));
     memcpy(materialUBO.blockBuffer + materialUBO.offsets[3], &shine, sizeof(float));
 
-    float coverage = .5f, cloudScale = 5;
-    int stepCount = 5;
     vec3 cloudColor = vec3(1.0f, 1.0f, 1.0f);
     cloudOffset = vec3(0.0f, 0.0f, 0.0f);
 
@@ -475,7 +496,8 @@ void setUpUniforms() {
 
     subIndex[0] = glGetSubroutineIndex(cloudProgram, GL_FRAGMENT_SHADER, "simpleScene");
     subIndex[1] = glGetSubroutineIndex(cloudProgram, GL_FRAGMENT_SHADER, "showBoundingBox");
-    subIndex[2] = glGetSubroutineIndex(cloudProgram, GL_FRAGMENT_SHADER, "simpleRayMarchNoise");
+    subIndex[2] = glGetSubroutineIndex(cloudProgram, GL_FRAGMENT_SHADER, "showNoise");
+    subIndex[3] = glGetSubroutineIndex(cloudProgram, GL_FRAGMENT_SHADER, "simpleRayMarchNoise");
 }
 
 void update() {
@@ -581,6 +603,9 @@ void secondPass() {
     glBufferData(GL_UNIFORM_BUFFER, camUBO.blockSize, camUBO.blockBuffer, GL_DYNAMIC_DRAW);
 
     // Copy Cloud Data
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[0], &coverage, sizeof(float));
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[1], &stepCount, sizeof(int));
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[4], &cloudScale, sizeof(float));
     memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[5], &cloudOffset, sizeof(vec3));
     glBindBuffer(GL_UNIFORM_BUFFER, cloudUBO.ubod);
     glBufferData(GL_UNIFORM_BUFFER, cloudUBO.blockSize, cloudUBO.blockBuffer, GL_STATIC_DRAW);
