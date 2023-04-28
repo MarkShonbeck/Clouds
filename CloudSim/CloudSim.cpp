@@ -447,14 +447,14 @@ void setUpUniforms() {
     memcpy(materialUBO.blockBuffer + materialUBO.offsets[2], &specColor, sizeof(vec3));
     memcpy(materialUBO.blockBuffer + materialUBO.offsets[3], &shine, sizeof(float));
 
-    float coverage = .5f, cloudScale = 2;
+    float coverage = .5f, cloudScale = 5;
     int stepCount = 5;
     vec3 cloudColor = vec3(1.0f, 1.0f, 1.0f);
     cloudOffset = vec3(0.0f, 0.0f, 0.0f);
 
     // Set bounding box
     static float box[2][3] = {
-            {-5, 0, -5}, {5, 10, 5},
+            {-8, 5, -8}, {8, 10, 8},
     };
 
     memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[0], &coverage, sizeof(float));
