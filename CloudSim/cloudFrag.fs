@@ -36,6 +36,7 @@ uniform cloudData {
     float boundingBox[6];
     float cloudScale;
     vec3 cloudOffset;
+    vec3 detailOffset;
 };
 
 subroutine void RenderLevelType();
@@ -166,17 +167,18 @@ float perlin_noise(vec3 p, float scale) {
 }
 
 float sampleDensity(vec3 position) {
-    vec3 offsetPosition = (position + cloudOffset)/cloudScale;
+    vec3 shapePosition = (position + cloudOffset)/cloudScale;
+    vec3 detailPosition = (position + detailOffset)/cloudScale;
     float density = 0;
 
     // 2 octaves of worley
     for (int i = 0; i < 2; i++) {
-        density += worley_noise(offsetPosition, pow(2, -i)) * pow(2, -i);
+        density += worley_noise(shapePosition, pow(2, -i)) * pow(2, -i);
     }
 
     // 5 octaves of perlin
     for (int i = 0; i < 5; i++) {
-            density += perlin_noise(offsetPosition, pow(2, i)) * pow(2, -i);
+            density += perlin_noise(detailPosition, pow(2, i)) * pow(2, -i);
     }
 
     // Edge fall off

@@ -59,7 +59,8 @@ vec3 cameraPos = vec3(-10.0f, 10.0f, -10.0f);
 vec3 cameraDir;
 float theta = glm::pi<float>()/4.0f, phi = glm::pi<float>()/1.5f;
 
-vec3 cloudOffset, cloudSpeed = vec3(0.0f);
+vec3 cloudOffset = vec3(0.0f), cloudSpeed = vec3(0.0f);
+vec3 detailOffset = vec3(0.0f), detailSpeed = vec3(0.0f);
 float coverage = .5f, cloudScale = 5;
 int mainStepCount = 5;
 int lightStepCount = 5;
@@ -196,6 +197,7 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
                 break;
             case GLFW_KEY_5:
                 cloudSpeed = vec3(.05f, 0.0f, 0.0f);
+                detailSpeed = vec3(.03f, 0.0f, 0.0f);
                 break;
             default:
                 break;
@@ -462,13 +464,14 @@ void setUpUniforms() {
     GLchar* materialComponents[4] = {"reflectionAmbient", "reflectionDiffuse", "reflectionSpecular", "shine"};
     GLchar* lightComponents[4] = {"lightPosition", "ambient", "diffuse", "specular"};
     GLchar* camComponents[5] = {"camPosition", "camDirection", "camDist", "nearClip", "farClip"};
-    GLchar* cloudComponents[7] = {"coverage", "mainStepCount", "lightStepCount", "cloudColor", "boundingBox", "cloudScale", "cloudOffset"};
+    GLchar* cloudComponents[8] = {"coverage", "mainStepCount", "lightStepCount", "cloudColor", "boundingBox",
+                                  "cloudScale", "cloudOffset", "detailOffset"};
 
     matrixUBO = initUBO(index, 4, "matrixData", matrixComponents, progs, 2);
     lightUBO = initUBO(index, 4, "lightData", lightComponents, progs, 2);
     materialUBO = initUBO(index, 4, "materialData", materialComponents, &phongProgram, 1);
     camUBO = initUBO(index, 5, "camData", camComponents, &cloudProgram, 1);
-    cloudUBO = initUBO(index, 7, "cloudData", cloudComponents, &cloudProgram, 1);
+    cloudUBO = initUBO(index, 8, "cloudData", cloudComponents, &cloudProgram, 1);
 
     // Copy static data into GPU
     memcpy(lightUBO.blockBuffer + lightUBO.offsets[0], &lightPos, sizeof(vec4));
@@ -502,6 +505,7 @@ void setUpUniforms() {
     memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[4], box, sizeof(box));
     memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[5], &cloudScale, sizeof(float));
     memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[6], &cloudOffset, sizeof(vec3));
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[7], &detailOffset, sizeof(vec3));
 
     glBindBuffer(GL_UNIFORM_BUFFER, lightUBO.ubod);
     glBufferData(GL_UNIFORM_BUFFER, lightUBO.blockSize, lightUBO.blockBuffer, GL_STATIC_DRAW);
@@ -543,6 +547,7 @@ void update() {
     }
 
     cloudOffset += cloudSpeed;
+    detailOffset += detailSpeed;
 }
 
 void firstPass() {
@@ -635,6 +640,7 @@ void secondPass() {
     memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[2], &lightStepCount, sizeof(int));
     memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[5], &cloudScale, sizeof(float));
     memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[6], &cloudOffset, sizeof(vec3));
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[6], &detailOffset, sizeof(vec3));
     glBindBuffer(GL_UNIFORM_BUFFER, cloudUBO.ubod);
     glBufferData(GL_UNIFORM_BUFFER, cloudUBO.blockSize, cloudUBO.blockBuffer, GL_STATIC_DRAW);
 
