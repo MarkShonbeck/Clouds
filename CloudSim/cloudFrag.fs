@@ -23,6 +23,9 @@ uniform lightData {
 uniform camData {
     vec3 camPosition;
     vec3 camDirection;
+    float camDist;
+    float nearClip;
+    float farClip;
 };
 
 uniform cloudData {
@@ -41,13 +44,12 @@ subroutine uniform RenderLevelType RenderLevel;
 vec3 rayo, rayd;
 
 void generateRay() {
-    float d = 1; // distance of the image plane from the camera
     vec3 m, q; // m is the middle of the image, q is the bottom left point of the image
     vec3 camRight;
     vec3 camUp;
     vec3 pixelCenter;
 
-    m = camPosition+camDirection*d;
+    m = camPosition+camDirection*camDist;
     camRight = normalize(cross(camDirection, vec3(0.0, 1.0, 0.0))); // the direction of the camera's +x axis
     camUp = normalize(cross(camRight, camDirection));
     q = m+(-.5*camRight)+(-.5*camUp); // we assume image plane left boundary is at x=-0.5 and right boundary at x=0.5
@@ -58,11 +60,10 @@ void generateRay() {
 }
 
 float getDepth()  {
-    float near = .3, far = 100;
     ivec2 pixel = ivec2(gl_FragCoord.xy);
     float depth = texelFetch(DepthData, pixel, 0).x;
     float ndc = depth * 2.0 - 1.0;
-    float linearDepth = (2.0 * near * far) / (far + near - ndc * (far - near));
+    float linearDepth = (2.0 * nearClip * farClip) / (farClip + nearClip - ndc * (farClip - nearClip));
     return linearDepth;
 }
 

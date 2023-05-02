@@ -49,6 +49,8 @@ vec3 groundColor = vec3(0/255.0f, 64/255.0f, 0/255.0f);
 vec4 skyColor = vec4(0/255.0f, 191/255.0f, 254/255.0f, 0.0f);
 
 int width = 1000, height = 1000;
+float fov = 45.0f, zNear = .3f, zFar = 100.0f;
+float camDist = .5f/tanf(glm::radians(fov/2.0f));
 
 int lastTime;
 int nFrames;
@@ -459,13 +461,13 @@ void setUpUniforms() {
     GLchar* matrixComponents[4] = {"modelMat", "viewMat", "projectionMat", "normalMat"};
     GLchar* materialComponents[4] = {"reflectionAmbient", "reflectionDiffuse", "reflectionSpecular", "shine"};
     GLchar* lightComponents[4] = {"lightPosition", "ambient", "diffuse", "specular"};
-    GLchar* camComponents[4] = {"camPosition", "camDirection"};
+    GLchar* camComponents[5] = {"camPosition", "camDirection", "camDist", "nearClip", "farClip"};
     GLchar* cloudComponents[7] = {"coverage", "mainStepCount", "lightStepCount", "cloudColor", "boundingBox", "cloudScale", "cloudOffset"};
 
     matrixUBO = initUBO(index, 4, "matrixData", matrixComponents, progs, 2);
     lightUBO = initUBO(index, 4, "lightData", lightComponents, progs, 2);
     materialUBO = initUBO(index, 4, "materialData", materialComponents, &phongProgram, 1);
-    camUBO = initUBO(index, 2, "camData", camComponents, &cloudProgram, 1);
+    camUBO = initUBO(index, 5, "camData", camComponents, &cloudProgram, 1);
     cloudUBO = initUBO(index, 7, "cloudData", cloudComponents, &cloudProgram, 1);
 
     // Copy static data into GPU
@@ -480,6 +482,10 @@ void setUpUniforms() {
     memcpy(materialUBO.blockBuffer + materialUBO.offsets[1], &isoColor, sizeof(vec3));
     memcpy(materialUBO.blockBuffer + materialUBO.offsets[2], &specColor, sizeof(vec3));
     memcpy(materialUBO.blockBuffer + materialUBO.offsets[3], &shine, sizeof(float));
+
+    memcpy(camUBO.blockBuffer + camUBO.offsets[2], &camDist, sizeof(float));
+    memcpy(camUBO.blockBuffer + camUBO.offsets[3], &zNear, sizeof(float));
+    memcpy(camUBO.blockBuffer + camUBO.offsets[4], &zFar, sizeof(float));
 
     vec3 cloudColor = vec3(1.0f, 1.0f, 1.0f);
     cloudOffset = vec3(0.0f, 0.0f, 0.0f);
@@ -502,6 +508,9 @@ void setUpUniforms() {
 
     glBindBuffer(GL_UNIFORM_BUFFER, materialUBO.ubod);
     glBufferData(GL_UNIFORM_BUFFER, materialUBO.blockSize, materialUBO.blockBuffer, GL_STATIC_DRAW);
+
+    glBindBuffer(GL_UNIFORM_BUFFER, camUBO.ubod);
+    glBufferData(GL_UNIFORM_BUFFER, camUBO.blockSize, camUBO.blockBuffer, GL_STATIC_DRAW);
 
     glBindBuffer(GL_UNIFORM_BUFFER, cloudUBO.ubod);
     glBufferData(GL_UNIFORM_BUFFER, cloudUBO.blockSize, cloudUBO.blockBuffer, GL_STATIC_DRAW);
@@ -549,7 +558,7 @@ void firstPass() {
 
     view = glm::lookAt(cameraPos, cameraPos + cameraDir, vec3(0.0f,1.0f,0.0f));
 
-    projection = glm::perspective(glm::radians(45.0f), (float)width/height, 0.3f, 100.0f);
+    projection = glm::perspective(glm::radians(fov), (float)width/height, zNear, zFar);
 
     normal = glm::mat3(glm::transpose(glm::inverse(view * model)));
     icoNormal = glm::mat3(glm::transpose(glm::inverse(view * model)));
