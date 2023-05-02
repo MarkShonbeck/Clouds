@@ -27,7 +27,8 @@ uniform camData {
 
 uniform cloudData {
     float coverage;
-    int stepCount;
+    int mainStepCount;
+    int lightStepCount;
     vec3 cloudColor;
     float boundingBox[6];
     float cloudScale;
@@ -106,13 +107,21 @@ vec2 intersectBox(vec3 rayo, vec3 rayd) {
 float rand1(float n) {
  	return fract(cos(n*89.42)*343.42);
 }
+
 vec3 rand3(vec3 n) {
  	return vec3(rand1(n.x*23.62 + n.y*34.35 + n.z*29.39 - 300.0),
  	            rand1(n.x*45.13 + n.y*38.89 + n.z*41.05 + 256.0),
  	            rand1(n.x*25.97 + n.y*35.48 + n.z*38.20 - 134.6));
 }
+
+vec3 hash33(vec3 p3) {
+	p3 = fract(p3 * vec3(0.1031, 0.11369, 0.13787));
+    p3 += dot(p3, p3.yxz + 19.19);
+    return -1.0 + 2.0 * fract(vec3((p3.x + p3.y)*p3.z, (p3.x + p3.z)*p3.y, (p3.y + p3.z)*p3.x));
+}
+
 float worley_noise(vec3 n, float s) {
-    float dis = 64.0;
+    float dis = 10001.0;
     for (int x = -1; x <= 1; x++) {
         for (int y = -1; y <= 1; y++) {
             for (int z = -1; z <= 1; z++) {
@@ -125,12 +134,6 @@ float worley_noise(vec3 n, float s) {
         }
     }
     return 1.0 - dis;
-}
-
-vec3 hash33(vec3 p3) {
-	p3 = fract(p3 * vec3(0.1031, 0.11369, 0.13787));
-    p3 += dot(p3, p3.yxz + 19.19);
-    return -1.0 + 2.0 * fract(vec3((p3.x + p3.y)*p3.z, (p3.x + p3.z)*p3.y, (p3.y + p3.z)*p3.x));
 }
 
 float perlin_noise(vec3 p, float scale) {
@@ -162,36 +165,91 @@ float perlin_noise(vec3 p, float scale) {
 }
 
 float sampleDensity(vec3 position) {
-    position = (position + cloudOffset)/cloudScale;
+    vec3 offsetPosition = (position + cloudOffset)/cloudScale;
     float density = 0;
 
     // 2 octaves of worley
     for (int i = 0; i < 2; i++) {
-        density += worley_noise(position, pow(2, -i)) * pow(2, -i);
+        density += worley_noise(offsetPosition, pow(2, -i)) * pow(2, -i);
     }
 
     // 5 octaves of perlin
     for (int i = 0; i < 5; i++) {
-            density += perlin_noise(position, pow(2, i)) * pow(2, -i);
+            density += perlin_noise(offsetPosition, pow(2, i)) * pow(2, -i);
     }
+
+    // Edge fall off
+    float distX = min(position.x - boundingBox[0], boundingBox[1] - position.x);
+    float distZ = min(position.z - boundingBox[2], boundingBox[5] - position.z);
+
+    //density *= min(1, min(distX, distZ))/1;
 
     density -= coverage;
 
-    return max(density, 0);
+    return min(max(density, 0), 1.0);
 }
 
 float simpleRayMarch(vec3 startPoint, vec3 endPoint) {
-    float stepDistance = (length(endPoint - startPoint))/(stepCount-1);
+    float stepDistance = (length(endPoint - startPoint))/(mainStepCount-1);
     vec3 stepDirection = normalize(endPoint - startPoint);
     float totalDensity = 0;
 
-    for (int i = 0; i < stepCount; i++) {
-        vec3 point = startPoint + i*stepDistance*stepDirection;
-
+    vec3 point = startPoint;
+    for (int i = 0; i < mainStepCount; i++) {
         totalDensity += sampleDensity(point) * stepDistance;
+
+        point += stepDistance*stepDirection;
     }
 
     return exp(-totalDensity);
+}
+
+float lightRayMarch(vec3 startPoint, vec3 endPoint) {
+    vec3 stepDirection = normalize(endPoint - startPoint);
+
+    endPoint = startPoint + stepDirection*intersectBox(startPoint, stepDirection).y;
+    float stepDistance = length(endPoint - startPoint)/(lightStepCount-1);
+
+    if (stepDistance < .00001) {
+        return 1.0;
+    }
+
+    float totalDensity = 0;
+    vec3 point = startPoint;
+    for (int i = 0; i < lightStepCount; i++) {
+        totalDensity += sampleDensity(point) * stepDistance;
+
+        point += stepDistance*stepDirection;
+    }
+
+    return .2 + .8*exp(-totalDensity);
+}
+
+vec2 rayMarch(vec3 startPoint, vec3 endPoint) {
+    float stepDistance = (length(endPoint - startPoint))/(mainStepCount-1);
+    vec3 stepDirection = normalize(endPoint - startPoint);
+
+    float totalDensity = 0;
+    float totalLight = 0;
+    vec3 point = startPoint;
+    for (int i = 0; i < mainStepCount; i++) {
+        float density = sampleDensity(point);
+
+        totalLight += lightRayMarch(point, lightPosition.xyz)*
+                      exp(-totalDensity)*
+                      //dot(stepDirection, normalize(point - lightPosition.xyz))*
+                      density*
+                      stepDistance;
+        totalDensity += density * stepDistance;
+
+        if (totalDensity > 5) {
+            break;
+        }
+
+        point += stepDistance*stepDirection;
+    }
+
+    return vec2(totalLight, exp(-totalDensity));
 }
 
 subroutine (RenderLevelType)
@@ -220,35 +278,6 @@ void showBoundingBox() {
 }
 
 subroutine (RenderLevelType)
-void showNoise() {
-    ivec2 pixel = ivec2(gl_FragCoord.xy);
-    vec4 color = texelFetch(ColorData, pixel, 0);
-    float depth = getDepth();
-
-    generateRay();
-
-    vec2 t = intersectBox(rayo, rayd);
-
-    FragColor = color;
-
-    if (t.x < depth) {
-        if (t.x > -.00001 && t.x < 10000) {
-            t.y = min(t.y, depth);
-
-            vec3 startPoint = rayo + t.x*rayd;
-            vec3 endPoint = rayo + t.y*rayd;
-
-            float light = simpleRayMarch(startPoint, endPoint);
-            if (light < coverage) {
-                FragColor = vec4(cloudColor, 1.0);
-            } else {
-                FragColor = color;
-            }
-        }
-    }
-}
-
-subroutine (RenderLevelType)
 void simpleRayMarchNoise() {
     ivec2 pixel = ivec2(gl_FragCoord.xy);
     vec4 color = texelFetch(ColorData, pixel, 0);
@@ -269,6 +298,31 @@ void simpleRayMarchNoise() {
 
             float light = simpleRayMarch(startPoint, endPoint);
             FragColor = mix(vec4(cloudColor, 1.0), color, light);
+        }
+    }
+}
+
+subroutine (RenderLevelType)
+void rayMarchNoise() {
+    ivec2 pixel = ivec2(gl_FragCoord.xy);
+    vec4 color = texelFetch(ColorData, pixel, 0);
+    float depth = getDepth();
+
+    generateRay();
+
+    vec2 t = intersectBox(rayo, rayd);
+
+    FragColor = color;
+
+    if (t.x < depth) {
+        if (t.x > -.00001 && t.x < 10000) {
+            t.y = min(t.y, depth);
+
+            vec3 startPoint = rayo + t.x*rayd;
+            vec3 endPoint = rayo + t.y*rayd;
+
+            vec2 light = rayMarch(startPoint, endPoint);
+            FragColor = vec4(light.x*cloudColor + light.y*color.xyz, 0);
         }
     }
 }

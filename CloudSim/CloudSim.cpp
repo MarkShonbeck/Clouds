@@ -30,8 +30,9 @@ struct uniform {
 };
 
 GLuint phongProgram, cloudProgram;
+GLuint progs[2];
 GLuint FBOd;
-GLuint renderTex, depthBuf, depthTex;
+GLuint renderTex, depthTex;
 
 GLuint icoVAO, groundVAO, screenVAO;
 
@@ -41,7 +42,7 @@ GLuint subIndex[4], sub = 0;
 
 GLboolean keys[GLFW_KEY_LAST];
 
-vec4 lightPos = vec4(10.0f, 10.0f, 10.0f, 1.0f);
+vec4 lightPos = vec4(10.0f, 20.0f, 10.0f, 1.0f);
 vec3 lightAmb = vec3(1.0f, 1.0f, 1.0f), lightDif = vec3(1.0f, 1.0f, 1.0f), lightSpec = vec3(1.0f, 1.0f, 1.0f);
 vec3 isoColor = vec3(253/255.0f, 238/255.0f, 75/255.0f), specColor = vec3(.8f, .8f, .8f);
 vec3 groundColor = vec3(0/255.0f, 64/255.0f, 0/255.0f);
@@ -58,7 +59,8 @@ float theta = glm::pi<float>()/4.0f, phi = glm::pi<float>()/1.5f;
 
 vec3 cloudOffset, cloudSpeed = vec3(0.0f);
 float coverage = .5f, cloudScale = 5;
-int stepCount = 10;
+int mainStepCount = 5;
+int lightStepCount = 5;
 
 vec2 mousePos = vec2(-10000, -10000);
 bool pressLMB = false;
@@ -140,6 +142,9 @@ void initShaders()
     glAttachShader(cloudProgram, fs);
 
     glLinkProgram(cloudProgram);
+
+    progs[0] = phongProgram;
+    progs[1] = cloudProgram;
 }
 
 static void error_callback(int error, const char* description)
@@ -170,10 +175,10 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
                 cloudScale -= 1;
                 break;
             case GLFW_KEY_P:
-                stepCount += 1;
+                mainStepCount += 1;
                 break;
             case GLFW_KEY_SEMICOLON:
-                stepCount -= 1;
+                mainStepCount -= 1;
                 break;
             case GLFW_KEY_1:
                 sub = 0;
@@ -188,7 +193,7 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
                 sub = 3;
                 break;
             case GLFW_KEY_5:
-                cloudSpeed = vec3(.01f, 0.0f, 0.0f);
+                cloudSpeed = vec3(.05f, 0.0f, 0.0f);
                 break;
             default:
                 break;
@@ -233,15 +238,19 @@ void showFPS(GLFWwindow* window) {
         }
 }
 
-uniform initUBO(int &index, int size, std::string name, GLchar** blockComponents, GLuint program) {
+uniform initUBO(int &index, int size, std::string name, GLchar** blockComponents, GLuint* programs, int num_programs) {
     uniform current;
 
     // Get uniform location
-    GLint blockIndex = glGetUniformBlockIndex(program, name.c_str());
+    GLint* block_indices = (GLint*)malloc(num_programs * sizeof(GLint));
+
+    for (int i = 0; i < num_programs; i++) {
+        block_indices[i] = glGetUniformBlockIndex(programs[i], name.c_str());
+    }
 
     // Query the size of the buffer
     GLint blockSize;
-    glGetActiveUniformBlockiv(program, blockIndex, GL_UNIFORM_BLOCK_DATA_SIZE, &blockSize);
+    glGetActiveUniformBlockiv(programs[0], block_indices[0], GL_UNIFORM_BLOCK_DATA_SIZE, &blockSize);
     current.blockSize = blockSize;
 
     // Create the buffer
@@ -249,19 +258,21 @@ uniform initUBO(int &index, int size, std::string name, GLchar** blockComponents
 
     // Query the indices of the block components
     GLuint indices[size];
-    glGetUniformIndices(program, size, blockComponents, indices);
+    glGetUniformIndices(programs[0], size, blockComponents, indices);
 
     // Get the offsets for each index
     GLint offsets[size];
-    glGetActiveUniformsiv(program, size, indices, GL_UNIFORM_OFFSET, offsets);
+    glGetActiveUniformsiv(programs[0], size, indices, GL_UNIFORM_OFFSET, offsets);
     current.offsets.assign(offsets, offsets + size);
 
     // Generate descriptor
     glGenBuffers(1, &current.ubod);
 
     // Connect buffer to block
-    glUniformBlockBinding(program, blockIndex, index);
-    glBindBufferBase(GL_UNIFORM_BUFFER, index, current.ubod);
+    for (int i = 0; i < num_programs; i++) {
+        glUniformBlockBinding(programs[i], block_indices[i], index);
+        glBindBufferBase(GL_UNIFORM_BUFFER, index, current.ubod);
+    }
 
     index++;
 
@@ -449,13 +460,13 @@ void setUpUniforms() {
     GLchar* materialComponents[4] = {"reflectionAmbient", "reflectionDiffuse", "reflectionSpecular", "shine"};
     GLchar* lightComponents[4] = {"lightPosition", "ambient", "diffuse", "specular"};
     GLchar* camComponents[4] = {"camPosition", "camDirection"};
-    GLchar* cloudComponents[6] = {"coverage", "stepCount", "cloudColor", "boundingBox", "cloudScale", "cloudOffset"};
+    GLchar* cloudComponents[7] = {"coverage", "mainStepCount", "lightStepCount", "cloudColor", "boundingBox", "cloudScale", "cloudOffset"};
 
-    matrixUBO = initUBO(index, 4, "matrixData", matrixComponents, phongProgram);
-    lightUBO = initUBO(index, 4, "lightData", lightComponents, phongProgram);
-    materialUBO = initUBO(index, 4, "materialData", materialComponents, phongProgram);
-    camUBO = initUBO(index, 2, "camData", camComponents, cloudProgram);
-    cloudUBO = initUBO(index, 6, "cloudData", cloudComponents, cloudProgram);
+    matrixUBO = initUBO(index, 4, "matrixData", matrixComponents, progs, 2);
+    lightUBO = initUBO(index, 4, "lightData", lightComponents, progs, 2);
+    materialUBO = initUBO(index, 4, "materialData", materialComponents, &phongProgram, 1);
+    camUBO = initUBO(index, 2, "camData", camComponents, &cloudProgram, 1);
+    cloudUBO = initUBO(index, 7, "cloudData", cloudComponents, &cloudProgram, 1);
 
     // Copy static data into GPU
     memcpy(lightUBO.blockBuffer + lightUBO.offsets[0], &lightPos, sizeof(vec4));
@@ -475,15 +486,16 @@ void setUpUniforms() {
 
     // Set bounding box
     static float box[2][3] = {
-            {-8, 5, -8}, {8, 10, 8},
+            {-8, 5, -8}, {8, 15, 8},
     };
 
     memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[0], &coverage, sizeof(float));
-    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[1], &stepCount, sizeof(int));
-    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[2], &cloudColor, sizeof(vec3));
-    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[3], box, sizeof(box));
-    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[4], &cloudScale, sizeof(float));
-    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[5], &cloudOffset, sizeof(vec3));
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[1], &mainStepCount, sizeof(int));
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[2], &lightStepCount, sizeof(int));
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[3], &cloudColor, sizeof(vec3));
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[4], box, sizeof(box));
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[5], &cloudScale, sizeof(float));
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[6], &cloudOffset, sizeof(vec3));
 
     glBindBuffer(GL_UNIFORM_BUFFER, lightUBO.ubod);
     glBufferData(GL_UNIFORM_BUFFER, lightUBO.blockSize, lightUBO.blockBuffer, GL_STATIC_DRAW);
@@ -496,8 +508,8 @@ void setUpUniforms() {
 
     subIndex[0] = glGetSubroutineIndex(cloudProgram, GL_FRAGMENT_SHADER, "simpleScene");
     subIndex[1] = glGetSubroutineIndex(cloudProgram, GL_FRAGMENT_SHADER, "showBoundingBox");
-    subIndex[2] = glGetSubroutineIndex(cloudProgram, GL_FRAGMENT_SHADER, "showNoise");
-    subIndex[3] = glGetSubroutineIndex(cloudProgram, GL_FRAGMENT_SHADER, "simpleRayMarchNoise");
+    subIndex[2] = glGetSubroutineIndex(cloudProgram, GL_FRAGMENT_SHADER, "simpleRayMarchNoise");
+    subIndex[3] = glGetSubroutineIndex(cloudProgram, GL_FRAGMENT_SHADER, "rayMarchNoise");
 }
 
 void update() {
@@ -610,9 +622,10 @@ void secondPass() {
 
     // Copy Cloud Data
     memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[0], &coverage, sizeof(float));
-    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[1], &stepCount, sizeof(int));
-    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[4], &cloudScale, sizeof(float));
-    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[5], &cloudOffset, sizeof(vec3));
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[1], &mainStepCount, sizeof(int));
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[2], &lightStepCount, sizeof(int));
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[5], &cloudScale, sizeof(float));
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[6], &cloudOffset, sizeof(vec3));
     glBindBuffer(GL_UNIFORM_BUFFER, cloudUBO.ubod);
     glBufferData(GL_UNIFORM_BUFFER, cloudUBO.blockSize, cloudUBO.blockBuffer, GL_STATIC_DRAW);
 
