@@ -61,9 +61,9 @@ float theta = glm::pi<float>()/4.0f, phi = glm::pi<float>()/1.5f;
 
 vec3 cloudOffset = vec3(0.0f), cloudSpeed = vec3(0.0f);
 vec3 detailOffset = vec3(0.0f), detailSpeed = vec3(0.0f);
-float coverage = .5f, cloudScale = 5;
-int mainStepCount = 5;
-int lightStepCount = 5;
+float coverage = .7f, cloudScale = 7;
+int mainStepCount = 20;
+int lightStepCount = 10;
 
 vec2 mousePos = vec2(-10000, -10000);
 bool pressLMB = false;
@@ -165,39 +165,13 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
             case GLFW_KEY_ESCAPE:
                 glfwSetWindowShouldClose(window, GLFW_TRUE);
                 break;
-            case GLFW_KEY_I:
-                coverage += .1f;
-                break;
-            case GLFW_KEY_K:
-                coverage -= .1f;
-                break;
-            case GLFW_KEY_O:
-                cloudScale += 1;
-                break;
-            case GLFW_KEY_L:
-                cloudScale -= 1;
-                break;
-            case GLFW_KEY_P:
-                mainStepCount += 1;
-                break;
-            case GLFW_KEY_SEMICOLON:
-                mainStepCount -= 1;
-                break;
             case GLFW_KEY_1:
-                sub = 0;
+                cloudSpeed = vec3(0.0f);
+                detailSpeed = vec3(0.0f);
                 break;
             case GLFW_KEY_2:
-                sub = 1;
-                break;
-            case GLFW_KEY_3:
-                sub = 2;
-                break;
-            case GLFW_KEY_4:
-                sub = 3;
-                break;
-            case GLFW_KEY_5:
-                cloudSpeed = vec3(.05f, 0.0f, 0.0f);
-                detailSpeed = vec3(.03f, 0.0f, 0.0f);
+                cloudSpeed = 5.0f*vec3(.1f, 0.0f, 0.0f);
+                detailSpeed = 5.0f*vec3(.06f, 0.0f, 0.0f);
                 break;
             default:
                 break;
@@ -464,10 +438,10 @@ void setUpUniforms() {
     GLchar* materialComponents[4] = {"reflectionAmbient", "reflectionDiffuse", "reflectionSpecular", "shine"};
     GLchar* lightComponents[4] = {"lightPosition", "ambient", "diffuse", "specular"};
     GLchar* camComponents[5] = {"camPosition", "camDirection", "camDist", "nearClip", "farClip"};
-    GLchar* cloudComponents[8] = {"coverage", "mainStepCount", "lightStepCount", "cloudColor", "boundingBox",
+    GLchar* cloudComponents[9] = {"coverage", "mainStepCount", "lightStepCount", "cloudColor", "boundingBox",
                                   "cloudScale", "cloudOffset", "detailOffset"};
 
-    matrixUBO = initUBO(index, 4, "matrixData", matrixComponents, progs, 2);
+    matrixUBO = initUBO(index, 4, "matrixData", matrixComponents, &phongProgram, 1);
     lightUBO = initUBO(index, 4, "lightData", lightComponents, progs, 2);
     materialUBO = initUBO(index, 4, "materialData", materialComponents, &phongProgram, 1);
     camUBO = initUBO(index, 5, "camData", camComponents, &cloudProgram, 1);
@@ -490,7 +464,7 @@ void setUpUniforms() {
     memcpy(camUBO.blockBuffer + camUBO.offsets[3], &zNear, sizeof(float));
     memcpy(camUBO.blockBuffer + camUBO.offsets[4], &zFar, sizeof(float));
 
-    vec3 cloudColor = vec3(1.0f, 1.0f, 1.0f);
+    vec4 cloudColor = vec4(1.0f, 0.9f, 0.8f, 1.0f);
     cloudOffset = vec3(0.0f, 0.0f, 0.0f);
 
     // Set bounding box
@@ -501,7 +475,7 @@ void setUpUniforms() {
     memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[0], &coverage, sizeof(float));
     memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[1], &mainStepCount, sizeof(int));
     memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[2], &lightStepCount, sizeof(int));
-    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[3], &cloudColor, sizeof(vec3));
+    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[3], &cloudColor, sizeof(vec4));
     memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[4], box, sizeof(box));
     memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[5], &cloudScale, sizeof(float));
     memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[6], &cloudOffset, sizeof(vec3));
@@ -511,18 +485,13 @@ void setUpUniforms() {
     glBufferData(GL_UNIFORM_BUFFER, lightUBO.blockSize, lightUBO.blockBuffer, GL_STATIC_DRAW);
 
     glBindBuffer(GL_UNIFORM_BUFFER, materialUBO.ubod);
-    glBufferData(GL_UNIFORM_BUFFER, materialUBO.blockSize, materialUBO.blockBuffer, GL_STATIC_DRAW);
+    glBufferData(GL_UNIFORM_BUFFER, materialUBO.blockSize, materialUBO.blockBuffer, GL_DYNAMIC_DRAW);
 
     glBindBuffer(GL_UNIFORM_BUFFER, camUBO.ubod);
-    glBufferData(GL_UNIFORM_BUFFER, camUBO.blockSize, camUBO.blockBuffer, GL_STATIC_DRAW);
+    glBufferData(GL_UNIFORM_BUFFER, camUBO.blockSize, camUBO.blockBuffer, GL_DYNAMIC_DRAW);
 
     glBindBuffer(GL_UNIFORM_BUFFER, cloudUBO.ubod);
-    glBufferData(GL_UNIFORM_BUFFER, cloudUBO.blockSize, cloudUBO.blockBuffer, GL_STATIC_DRAW);
-
-    subIndex[0] = glGetSubroutineIndex(cloudProgram, GL_FRAGMENT_SHADER, "simpleScene");
-    subIndex[1] = glGetSubroutineIndex(cloudProgram, GL_FRAGMENT_SHADER, "showBoundingBox");
-    subIndex[2] = glGetSubroutineIndex(cloudProgram, GL_FRAGMENT_SHADER, "simpleRayMarchNoise");
-    subIndex[3] = glGetSubroutineIndex(cloudProgram, GL_FRAGMENT_SHADER, "rayMarchNoise");
+    glBufferData(GL_UNIFORM_BUFFER, cloudUBO.blockSize, cloudUBO.blockBuffer, GL_DYNAMIC_DRAW);
 }
 
 void update() {
@@ -620,14 +589,6 @@ void secondPass() {
     glDisable(GL_DEPTH_TEST);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    // Copy Matrix Data
-    memcpy(matrixUBO.blockBuffer + matrixUBO.offsets[0], &identity, sizeof(mat4));
-    memcpy(matrixUBO.blockBuffer + matrixUBO.offsets[1], &identity, sizeof(mat4));
-    memcpy(matrixUBO.blockBuffer + matrixUBO.offsets[2], &identity, sizeof(mat4));
-    memcpy(matrixUBO.blockBuffer + matrixUBO.offsets[3], &identity, sizeof(mat4));
-    glBindBuffer(GL_UNIFORM_BUFFER, matrixUBO.ubod);
-    glBufferData(GL_UNIFORM_BUFFER, matrixUBO.blockSize, matrixUBO.blockBuffer, GL_DYNAMIC_DRAW);
-
     // Copy Camera Data
     memcpy(camUBO.blockBuffer + camUBO.offsets[0], &cameraPos, sizeof(vec3));
     memcpy(camUBO.blockBuffer + camUBO.offsets[1], &cameraDir, sizeof(vec3));
@@ -635,17 +596,10 @@ void secondPass() {
     glBufferData(GL_UNIFORM_BUFFER, camUBO.blockSize, camUBO.blockBuffer, GL_DYNAMIC_DRAW);
 
     // Copy Cloud Data
-    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[0], &coverage, sizeof(float));
-    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[1], &mainStepCount, sizeof(int));
-    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[2], &lightStepCount, sizeof(int));
-    memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[5], &cloudScale, sizeof(float));
     memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[6], &cloudOffset, sizeof(vec3));
     memcpy(cloudUBO.blockBuffer + cloudUBO.offsets[6], &detailOffset, sizeof(vec3));
     glBindBuffer(GL_UNIFORM_BUFFER, cloudUBO.ubod);
-    glBufferData(GL_UNIFORM_BUFFER, cloudUBO.blockSize, cloudUBO.blockBuffer, GL_STATIC_DRAW);
-
-    // Set subroutine
-    glUniformSubroutinesuiv(GL_FRAGMENT_SHADER, 1, &subIndex[sub]);
+    glBufferData(GL_UNIFORM_BUFFER, cloudUBO.blockSize, cloudUBO.blockBuffer, GL_DYNAMIC_DRAW);
 
     // Render the full-screen quad
     glBindVertexArray(screenVAO);

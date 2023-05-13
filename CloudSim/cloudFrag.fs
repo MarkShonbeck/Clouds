@@ -6,13 +6,6 @@ layout (binding=1) uniform sampler2D DepthData;
 
 layout (location=0) out vec4 FragColor;
 
-uniform matrixData {
-    mat4 modelMat;
-    mat4 viewMat;
-    mat4 projectionMat;
-    mat3 normalMat;
-};
-
 uniform lightData {
     vec4 lightPosition;
     vec3 ambient;
@@ -32,15 +25,12 @@ uniform cloudData {
     float coverage;
     int mainStepCount;
     int lightStepCount;
-    vec3 cloudColor;
+    vec4 cloudColor;
     float boundingBox[6];
     float cloudScale;
     vec3 cloudOffset;
     vec3 detailOffset;
 };
-
-subroutine void RenderLevelType();
-subroutine uniform RenderLevelType RenderLevel;
 
 vec3 rayo, rayd;
 
@@ -122,6 +112,7 @@ vec3 hash33(vec3 p3) {
     return -1.0 + 2.0 * fract(vec3((p3.x + p3.y)*p3.z, (p3.x + p3.z)*p3.y, (p3.y + p3.z)*p3.x));
 }
 
+// Adapted from https://www.shadertoy.com/view/4l2GzW
 float worley_noise(vec3 n, float s) {
     float dis = 10001.0;
     for (int x = -1; x <= 1; x++) {
@@ -138,6 +129,7 @@ float worley_noise(vec3 n, float s) {
     return 1.0 - dis;
 }
 
+// From https://www.shadertoy.com/view/4sc3z2
 float perlin_noise(vec3 p, float scale) {
     p *= scale;
 
@@ -178,33 +170,30 @@ float sampleDensity(vec3 position) {
 
     // 5 octaves of perlin
     for (int i = 0; i < 5; i++) {
-            density += perlin_noise(detailPosition, pow(2, i)) * pow(2, -i);
+            density += perlin_noise(detailPosition, pow(2, i+1)) * pow(2, -i);
     }
 
     // Edge fall off
     float distX = min(position.x - boundingBox[0], boundingBox[3] - position.x);
     float distZ = min(position.z - boundingBox[2], boundingBox[5] - position.z);
 
-    density *= min(1, min(distX, distZ))/1;
+    float edgeWeight = min(1, min(distX, distZ))/1;
 
+    // Normalized height in the box
+    float heightPercent = (position.y - boundingBox[1]) / (boundingBox[4] - boundingBox[1]);
+    // Reduce noise below .2 and above .8 height
+    float heightReduction = clamp(heightPercent/0.2, 0.0, 1.0) * clamp((1.0 - heightPercent)/0.2, 0.0, 1.0);
+
+    edgeWeight *= heightReduction;
+    density *= edgeWeight;
+
+    // Make gaps in the noise
     density -= coverage;
 
-    return min(max(density, 0), 1.0);
-}
+    // Increase the density to make the edge between cloud and sky sharper
+    density *= 2;
 
-float simpleRayMarch(vec3 startPoint, vec3 endPoint) {
-    float stepDistance = (length(endPoint - startPoint))/(mainStepCount-1);
-    vec3 stepDirection = normalize(endPoint - startPoint);
-    float totalDensity = 0;
-
-    vec3 point = startPoint;
-    for (int i = 0; i < mainStepCount; i++) {
-        totalDensity += sampleDensity(point) * stepDistance;
-
-        point += stepDistance*stepDirection;
-    }
-
-    return exp(-totalDensity);
+    return clamp(density, 0.0, 1.0);
 }
 
 float lightRayMarch(vec3 startPoint, vec3 endPoint) {
@@ -213,6 +202,7 @@ float lightRayMarch(vec3 startPoint, vec3 endPoint) {
     endPoint = startPoint + stepDirection*intersectBox(startPoint, stepDirection).y;
     float stepDistance = length(endPoint - startPoint)/(lightStepCount-1);
 
+    // If we are right on the edge of the box
     if (stepDistance < .00001) {
         return 1.0;
     }
@@ -220,11 +210,12 @@ float lightRayMarch(vec3 startPoint, vec3 endPoint) {
     float totalDensity = 0;
     vec3 point = startPoint;
     for (int i = 0; i < lightStepCount; i++) {
-        totalDensity += sampleDensity(point) * stepDistance;
+        totalDensity += sampleDensity(point) * stepDistance * .3;
 
         point += stepDistance*stepDirection;
     }
 
+    // Return with a minimum ligth of .2, so clouds aren't too dark
     return .2 + .8*exp(-totalDensity);
 }
 
@@ -232,19 +223,21 @@ vec2 rayMarch(vec3 startPoint, vec3 endPoint) {
     float stepDistance = (length(endPoint - startPoint))/(mainStepCount-1);
     vec3 stepDirection = normalize(endPoint - startPoint);
 
-    float totalDensity = 0;
-    float totalLight = 0;
+    float totalDensity = 0;             // Density of the cloud along the path so far
+    float totalLight = 0;               // How much light reaches the camera from the light source
     vec3 point = startPoint;
     for (int i = 0; i < mainStepCount; i++) {
         float density = sampleDensity(point);
 
+        // The light that reaches the camera from this point added to total light
         totalLight += lightRayMarch(point, lightPosition.xyz)*
                       exp(-totalDensity)*
-                      //dot(stepDirection, normalize(point - lightPosition.xyz))*
+                      max(1.5*abs(dot(stepDirection, normalize(point - lightPosition.xyz))), .8)*
                       density*
                       stepDistance;
-        totalDensity += density * stepDistance;
+        totalDensity += density * stepDistance * 1.5;
 
+        // When the density is very high, no more light will get through, so we can exit
         if (totalDensity > 5) {
             break;
         }
@@ -255,57 +248,6 @@ vec2 rayMarch(vec3 startPoint, vec3 endPoint) {
     return vec2(totalLight, exp(-totalDensity));
 }
 
-subroutine (RenderLevelType)
-void simpleScene() {
-    ivec2 pixel = ivec2(gl_FragCoord.xy);
-    vec4 color = texelFetch(ColorData, pixel, 0);
-
-    FragColor = color;
-}
-
-subroutine (RenderLevelType)
-void showBoundingBox() {
-    ivec2 pixel = ivec2(gl_FragCoord.xy);
-    vec4 color = texelFetch(ColorData, pixel, 0);
-    float depth = getDepth();
-
-    generateRay();
-
-    float t = intersectBox(rayo, rayd).x;
-
-    FragColor = color;
-
-    if (t > -.00001 && t < 10000 && t < depth) {
-        FragColor = vec4(cloudColor, 1.0);
-    }
-}
-
-subroutine (RenderLevelType)
-void simpleRayMarchNoise() {
-    ivec2 pixel = ivec2(gl_FragCoord.xy);
-    vec4 color = texelFetch(ColorData, pixel, 0);
-    float depth = getDepth();
-
-    generateRay();
-
-    vec2 t = intersectBox(rayo, rayd);
-
-    FragColor = color;
-
-    if (t.x < depth) {
-        if (t.x > -.00001 && t.x < 10000) {
-            t.y = min(t.y, depth);
-
-            vec3 startPoint = rayo + t.x*rayd;
-            vec3 endPoint = rayo + t.y*rayd;
-
-            float light = simpleRayMarch(startPoint, endPoint);
-            FragColor = mix(vec4(cloudColor, 1.0), color, light);
-        }
-    }
-}
-
-subroutine (RenderLevelType)
 void rayMarchNoise() {
     ivec2 pixel = ivec2(gl_FragCoord.xy);
     vec4 color = texelFetch(ColorData, pixel, 0);
@@ -325,11 +267,11 @@ void rayMarchNoise() {
             vec3 endPoint = rayo + t.y*rayd;
 
             vec2 light = rayMarch(startPoint, endPoint);
-            FragColor = vec4(light.x*cloudColor + light.y*color.xyz, 0);
+            FragColor = light.x*cloudColor + light.y*color;
         }
     }
 }
 
 void main() {
-    RenderLevel();
+    rayMarchNoise();
 }
