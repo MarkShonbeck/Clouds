@@ -182,10 +182,10 @@ float sampleDensity(vec3 position) {
     }
 
     // Edge fall off
-    float distX = min(position.x - boundingBox[0], boundingBox[1] - position.x);
+    float distX = min(position.x - boundingBox[0], boundingBox[3] - position.x);
     float distZ = min(position.z - boundingBox[2], boundingBox[5] - position.z);
 
-    //density *= min(1, min(distX, distZ))/1;
+    density *= min(1, min(distX, distZ))/1;
 
     density -= coverage;
 
